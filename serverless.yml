@@ -1,0 +1,99 @@
+service: sls-chat
+frameworkVersion: "3"
+
+plugins:
+  - serverless-offline
+
+provider:
+  name: aws
+  runtime: nodejs16.x
+
+  environment:
+    CONNECTION_DB_TABLE: ${self:resources.Resources.messagesTable.Properties.TableName}
+    GROUP_TABLE: ${self:resources.Resources.groupTable.Properties.TableName}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - "dynamodb:PutItem"
+            - "dynamodb:GetItem"
+            - "dynamodb:DeleteItem"
+            - "dynamodb:Scan"
+          Resource:
+            - Fn::GetAtt: [messagesTable, Arn]
+        - Effect: Allow
+          Action:
+            - "execute-api:ManageConnections"
+          Resource:
+            - "arn:aws:execute-api:*:*:**/@connections/*"
+
+functions:
+  connectHandler:
+    handler: handler.connectHandler
+    events:
+      - websocket:
+          route: $connect
+  disconnectHandler:
+    handler: handler.disconnectHandler
+    events:
+      - websocket:
+          route: $disconnect
+  defaultHandler:
+    handler: handler.defaultHandler
+    events:
+      - websocket:
+          route: $default
+  createGroupHandler:
+    handler: handler.createGroupHandler
+    events:
+      - websocket:
+          route: createGroup
+  joinGroupHandler:
+    handler: handler.createGroupHandler
+    events:
+      - websocket:
+          route: joinGroup
+  sendMessageHandler:
+    handler: handler.sendMessageHandler
+    events:
+      - websocket:
+          route: sendMessageToId
+  broadcastHandler: # works
+    handler: handler.broadcastMessageHandler
+    events:
+      - websocket:
+          route: broadcastMessage
+  sendMessageToGroupHandler:
+    handler: handler.sendMessageToGroupHandler
+    events:
+      - websocket:
+          route: sendMessageToGroup
+
+resources:
+  Resources:
+    messagesTable:
+      Type: "AWS::DynamoDB::Table"
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: "connectionId"
+            AttributeType: "S"
+        KeySchema:
+          - AttributeName: "connectionId"
+            KeyType: "HASH"
+        BillingMode: PAY_PER_REQUEST
+        TableName: messages
+    groupTable:
+      Type: "AWS::DynamoDB::Table"
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: "groupId"
+            AttributeType: "S"
+        KeySchema:
+          - AttributeName: "groupId"
+            KeyType: "HASH"
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        TableName: groupTable
