@@ -2,6 +2,7 @@
 
 const AWS = require("aws-sdk");
 const dynamo = new AWS.DynamoDB.DocumentClient();
+const uuid = require("uuid");
 
 const CONNECTION_DB_TABLE = process.env.CONNECTION_DB_TABLE;
 const GROUP_TABLE = process.env.GROUP_TABLE;
@@ -97,6 +98,7 @@ const createGroup = (event) => {
   const params = {
     TableName: GROUP_TABLE,
     Item: {
+      groupId: uuid.v1(),
       createdBy: event.requestContext.connectionId,
       groupName: body.groupName,
       members: [event.requestContext.connectionId],
@@ -109,13 +111,54 @@ const createGroup = (event) => {
 };
 
 module.exports.joinGroupHandler = (event, _context, callback) => {
-  joinGroup(event)
-    .then(() => {
-      callback(null, successfullResponse);
-    })
-    .catch((err) => {
-      callback(failedResponse(500, JSON.stringify(err)));
-    });
+  // joinGroup(event)
+  //   .then(() => {
+  //     callback(null, successfullResponse);
+  //   })
+  //   .catch((err) => {
+  //     callback(failedResponse(500, JSON.stringify(err)));
+  //   });
+  const body = JSON.parse(event.body);
+  console.log("Join group", body.groupName)
+  const searchParams = {
+    TableName: GROUP_TABLE,
+    ExpressionAttributeValues: {
+      ":groupName": body.groupName,
+    },
+    IndexName: "groupName-index",
+    KeyConditionExpression: "groupName = :groupName",
+  }
+  console.log("search params", searchParams)
+  dynamo.query(searchParams, (err, data) => {
+    if(err) {
+      console.log("Error en joinGroup", err.message);
+      return err;
+    } else {
+      console.log("data", data)
+      console.log("group", data.groupId);
+      console.log("current members", data.members);
+      const members = data.members;
+      members.push(event.requestContext.connectionId);
+      const updateParams = {
+        TableName: GROUP_TABLE,
+        Key: {
+          groupId: data.groupId,
+        },
+        UpdateExpression: "SET members = :members",
+        ExpressionAttributeValues: {
+          ":members": members,
+        },
+      };
+      dynamo.update(updateParams, (err2,data) => {
+        if(err2) {
+          console.log("Error en joinGroup", err2.message);
+          return err2;
+        } else {
+          return data;
+        }
+      });
+    }
+  });
 };
 
 const joinGroup = (event) => {
